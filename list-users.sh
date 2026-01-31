@@ -2,51 +2,40 @@
 
 set -euo pipefail
 
-# -----------------------------
-# Configuration
-# -----------------------------
-
 API_URL="https://api.github.com"
 
-# These must be exported or set before running the script
-USERNAME="${username:?GitHub username not set}"
-TOKEN="${token:?GitHub token not set}"
+USERNAME="${username:?Set username}"
+TOKEN="${token:?Set token}"
 
-# Repository information (passed as arguments)
 REPO_OWNER="$1"
 REPO_NAME="$2"
 
-# -----------------------------
-# Functions
-# -----------------------------
-
-# Make a GET request to the GitHub API
 github_api_get() {
-    local endpoint="$1"
-    curl -s -u "${USERNAME}:${TOKEN}" "${API_URL}/${endpoint}"
+    curl -s \
+      -u "${USERNAME}:${TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      "${API_URL}/$1"
 }
 
-# List users with read (pull) access
 list_users_with_read_access() {
     local endpoint="repos/${REPO_OWNER}/${REPO_NAME}/collaborators"
     local response collaborators
 
     response="$(github_api_get "$endpoint")"
 
-    # Check for GitHub API error message
-    if echo "$response" | jq -e '.message?' >/dev/null; then
-        echo "GitHub API error:"
-        echo "$response" | jq -r '.message'
-        exit 1
-    fi
-
     collaborators="$(
-        echo "$response" |
-        jq -r '
-            .[]? |
-            select(.permissions?.pull == true) |
-            .login
-        '
+      echo "$response" |
+      jq -r '
+        if type == "array" then
+          .[] |
+          select(type == "object") |
+          select(.permissions | type == "object") |
+          select(.permissions.pull == true) |
+          .login
+        else
+          empty
+        end
+      '
     )"
 
     if [[ -z "$collaborators" ]]; then
@@ -57,10 +46,6 @@ list_users_with_read_access() {
     fi
 }
 
-# -----------------------------
-# Main
-# -----------------------------
-
 if [[ $# -ne 2 ]]; then
     echo "Usage: $0 <repo-owner> <repo-name>"
     exit 1
@@ -68,4 +53,3 @@ fi
 
 echo "Listing users with read access to ${REPO_OWNER}/${REPO_NAME}..."
 list_users_with_read_access
-
