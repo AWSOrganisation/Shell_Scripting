@@ -1,33 +1,54 @@
 #!/bin/bash
 
-# GitHub API URL
+set -euo pipefail
+
+# -----------------------------
+# Configuration
+# -----------------------------
+
 API_URL="https://api.github.com"
 
-# GitHub username and personal access token
-USERNAME=$username
-TOKEN=$token
+# These must be exported or set before running the script
+USERNAME="${username:?GitHub username not set}"
+TOKEN="${token:?GitHub token not set}"
 
-# User and Repository information
-REPO_OWNER=$1
-REPO_NAME=$2
+# Repository information (passed as arguments)
+REPO_OWNER="$1"
+REPO_NAME="$2"
 
-# Function to make a GET request to the GitHub API
-function github_api_get {
+# -----------------------------
+# Functions
+# -----------------------------
+
+# Make a GET request to the GitHub API
+github_api_get() {
     local endpoint="$1"
-    local url="${API_URL}/${endpoint}"
-
-    # Send a GET request to the GitHub API with authentication
-    curl -s -u "${USERNAME}:${TOKEN}" "$url"
+    curl -s -u "${USERNAME}:${TOKEN}" "${API_URL}/${endpoint}"
 }
 
-# Function to list users with read access to the repository
-function list_users_with_read_access {
+# List users with read (pull) access
+list_users_with_read_access() {
     local endpoint="repos/${REPO_OWNER}/${REPO_NAME}/collaborators"
+    local response collaborators
 
-    # Fetch the list of collaborators on the repository
-    collaborators="$(github_api_get "$endpoint" | jq -r '.[] | select(.permissions.pull == true) | .login')"
+    response="$(github_api_get "$endpoint")"
 
-    # Display the list of collaborators with read access
+    # Check for GitHub API error message
+    if echo "$response" | jq -e '.message?' >/dev/null; then
+        echo "GitHub API error:"
+        echo "$response" | jq -r '.message'
+        exit 1
+    fi
+
+    collaborators="$(
+        echo "$response" |
+        jq -r '
+            .[]? |
+            select(.permissions?.pull == true) |
+            .login
+        '
+    )"
+
     if [[ -z "$collaborators" ]]; then
         echo "No users with read access found for ${REPO_OWNER}/${REPO_NAME}."
     else
@@ -36,7 +57,15 @@ function list_users_with_read_access {
     fi
 }
 
-# Main script
+# -----------------------------
+# Main
+# -----------------------------
+
+if [[ $# -ne 2 ]]; then
+    echo "Usage: $0 <repo-owner> <repo-name>"
+    exit 1
+fi
 
 echo "Listing users with read access to ${REPO_OWNER}/${REPO_NAME}..."
 list_users_with_read_access
+
